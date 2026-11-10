@@ -154,8 +154,8 @@ def apply_platform_preference() -> str | None:
     ``QT_QPA_PLATFORM`` when the choice says so. Returns what was set."""
     from PySide6.QtCore import QCoreApplication
     from core import general_settings
-    QCoreApplication.setOrganizationName("IngeTrazo")
-    QCoreApplication.setApplicationName("IngeTrazo")
+    QCoreApplication.setOrganizationName("EDWIN CNC")
+    QCoreApplication.setApplicationName("EDWIN CNC 3D")
     pref = str(general_settings.value("platform", AUTO) or AUTO)
     chosen = choose_platform(pref)
     if chosen:

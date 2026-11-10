@@ -123,14 +123,14 @@ class Scene:
     #: The model's units (issue #33): the unit a bare number is typed in and
     #: every length is shown in, plus the decimals. Travels in the .igz;
     #: read through ``core.units`` (``fmt_len`` & co.).
-    units: dict = field(default_factory=lambda: {"length": "m", "precision": 2})
+    units: dict = field(default_factory=lambda: {"length": "mm", "precision": 1})
     #: Extensions' own document data, one JSON-safe value per extension key
     #: (``views.extension_api.ExtensionApp.document_data``). Travels in the
     #: .igz; the core never reads it. Changed through
     #: ``core.history.SetPluginDataCommand`` so each edit is undoable.
     plugin_data: dict = field(default_factory=dict)
     dimension_style: dict = field(default_factory=lambda: {
-        "decimals": 2, "units": "m", "font_size": 9, "color": [45, 55, 75],
+        "decimals": 1, "units": "mm", "font_size": 9, "color": [45, 55, 75],
         "norma": "iso", "base_step_mm": 8.0, "ends": "arrow",
         "show_unit": True})
     # Back-face tint override (RGB 0..1), e.g. adopted from an imported
@@ -761,7 +761,7 @@ class Scene:
         # Outside the guard: an empty document has a camera to forget too.
         self.camera_home = None
         self.views_home = None
-        self.units = {"length": "m", "precision": 2}
+        self.units = {"length": "mm", "precision": 1}
         self.plugin_data = {}
 
     # ---- Queries ------------------------------------------------------------

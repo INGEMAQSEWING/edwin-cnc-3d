@@ -127,6 +127,7 @@ hiddenimports = [
     # Lazily imported project modules (inside functions) — listed for safety.
     'core.text3d',
     'core.textlabel',
+    'core.edwin_desdoblar',   # EDWIN CNC 3D: plugins/edwin_cnc.py
 ]
 
 # ezdxf (DXF/DWG import) is imported INSIDE functions — without this the

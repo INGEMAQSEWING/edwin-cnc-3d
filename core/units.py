@@ -255,7 +255,7 @@ def format_signed_level(metres: float, units: str = "m",
 # the live scene is bound here once so tools and panels — which mostly have
 # no scene at hand — format through ``fmt_len``/``fmt_area``.
 
-DEFAULT_MODEL_UNITS = {"length": "m", "precision": 2}
+DEFAULT_MODEL_UNITS = {"length": "mm", "precision": 1}   # EDWIN CNC 3D: milímetros
 
 # English source strings, translated where they are shown (issue #65: the
 # labels were written in Spanish, so an English UI showed Spanish).

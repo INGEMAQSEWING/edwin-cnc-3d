@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.i18n import tr
+from core.i18n import tr_original as tr
 
 #: (name, what they gave — English source for tr(), link or "").
 #: Those who have given the most — a star beside their name, first in
@@ -475,7 +475,7 @@ def _os_name() -> str:
 class AboutDialog(QDialog):
     def __init__(self, parent, version: str, gl_line: str = "") -> None:
         super().__init__(parent)
-        self.setWindowTitle(tr("About IngeTrazo"))
+        self.setWindowTitle("Acerca de EDWIN CNC 3D")
         self.setMinimumWidth(480)
         outer = QHBoxLayout(self)
         outer.setContentsMargins(18, 18, 18, 14)
@@ -508,9 +508,14 @@ class AboutDialog(QDialog):
         # Which engine computes the heavy parts (Rust when the experimental
         # native engine is on and loads) — the first thing a report needs.
         gl += f"<br><small>{tr('Engine')}: {engine()}</small>"
-        para("<b style='font-size:15px'>IngeTrazo</b> "
-             f"{tr('Version')} {version}{gl}<br>"
-             f"{tr('Free 3D modeler for architecture, engineering and 3D design.')}<br>"
+        from core.version import EDWIN_VERSION
+        para("<b style='font-size:15px'>EDWIN CNC 3D</b> "
+             f"{tr('Version')} {EDWIN_VERSION} (IngeTrazo {version}){gl}<br>"
+             "Modelado 3D y desdoblado de láminas para corte CNC por plasma.<br>"
+             "Mejoras y marca: <b>EDWIN CNC</b> · "
+             "<a href='https://github.com/INGEMAQSEWING/edwin-cnc-3d'>github.com/INGEMAQSEWING/edwin-cnc-3d</a>")
+        para("<b>Basado en IngeTrazo</b> "
+             f"— {tr('Free 3D modeler for architecture, engineering and 3D design.')}<br>"
              f"{tr('Created by')} <b>Marco Sumari Tellez</b> — "
              f"{tr('Civil Engineer — Arequipa, Peru')}")
         head = para(f"<b>{tr('With contributions from')}</b>")

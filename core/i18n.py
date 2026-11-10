@@ -105,6 +105,8 @@ def resolve_language(choice: str | None) -> str:
     :data:`SYSTEM` (or no choice yet) the operating system's."""
     if choice and str(choice) != SYSTEM:
         return str(choice)
+    if not choice:
+        return "es"      # EDWIN CNC 3D: español por defecto
     from PySide6.QtCore import QLocale
     return language_for_locales(QLocale.system().uiLanguages())
 
@@ -147,6 +149,21 @@ def source_of(text: str) -> str:
     return _reverse.get(text, text)
 
 
+#: EDWIN CNC 3D: nombre que se muestra en lugar de «IngeTrazo».
+NOMBRE_APP = "EDWIN CNC 3D"
+
+
+def tr_original(text: str, /, **kwargs) -> str:
+    """Como :func:`tr` pero sin cambiar el nombre (créditos de IngeTrazo)."""
+    out = _catalog.get(text, text)
+    if kwargs:
+        try:
+            out = out.format(**kwargs)
+        except (KeyError, IndexError, ValueError):
+            out = text.format(**kwargs)
+    return out
+
+
 def tr(text: str, /, **kwargs) -> str:
     """Translate ``text`` into the active language; interpolate ``kwargs``.
 
@@ -159,4 +176,4 @@ def tr(text: str, /, **kwargs) -> str:
             out = out.format(**kwargs)
         except (KeyError, IndexError, ValueError):
             out = text.format(**kwargs)
-    return out
+    return out.replace("IngeTrazo", NOMBRE_APP)

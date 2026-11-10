@@ -17,10 +17,10 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
-from core.version import USER_AGENT, __version__
+from core.version import USER_AGENT, EDWIN_VERSION as __version__
 
-LATEST_API = "https://api.github.com/repos/ingelibre/ingetrazo/releases/latest"
-RELEASES_PAGE = "https://github.com/ingelibre/ingetrazo/releases"
+LATEST_API = "https://api.github.com/repos/INGEMAQSEWING/edwin-cnc-3d/releases/latest"
+RELEASES_PAGE = "https://github.com/INGEMAQSEWING/edwin-cnc-3d/releases"
 
 KEY_AUTO = "updates/check_at_start"
 KEY_LAST = "updates/last_check"
@@ -107,7 +107,7 @@ def store_managed(environ=None) -> bool:
 
 
 def auto_enabled(settings) -> bool:
-    return str(settings.value(KEY_AUTO, "1")) != "0"
+    return str(settings.value(KEY_AUTO, "0")) != "0"
 
 
 def should_check_at_start(settings, now: float | None = None, frozen=None,

@@ -9619,11 +9619,11 @@ class MainWindow(QMainWindow):
 
     def _update_title(self) -> None:
         if self.__dict__.get("_empty_on"):
-            self.setWindowTitle("IngeTrazo")
+            self.setWindowTitle("EDWIN CNC 3D")
             return
         marker = " *" if self._is_dirty() else ""
         if self._workspace is not None:
-            self.setWindowTitle(f"IngeTrazo — {self._workspace.title()}{marker}")
+            self.setWindowTitle(f"EDWIN CNC 3D — {self._workspace.title()}{marker}")
             return
         if self._current_path is not None:
             name = self._current_path.name
@@ -9631,7 +9631,7 @@ class MainWindow(QMainWindow):
             name = self._import_name
         else:
             name = tr("Untitled")
-        self.setWindowTitle(f"IngeTrazo — {name}{marker}")
+        self.setWindowTitle(f"EDWIN CNC 3D — {name}{marker}")
         self._update_tab()
         # The composer has a taskbar button of its own: it names the model.
         composer = getattr(self, "_composer", None)

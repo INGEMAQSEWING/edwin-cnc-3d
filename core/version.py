@@ -4,6 +4,10 @@
 
 __version__ = "0.6.1"
 
+#: Versión de EDWIN CNC 3D (la de arriba es la de IngeTrazo en que se basa;
+#: se deja igual porque los archivos .igz la guardan).
+EDWIN_VERSION = "1.0.0"
+
 #: What this program calls itself when it asks a server for something.
 #: Not decoration: Cloudflare answers 403 to Python's default
 #: ``Python-urllib/3.x``, so a download that does not say who it is comes

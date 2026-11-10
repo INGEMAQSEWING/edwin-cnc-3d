@@ -1,0 +1,25 @@
+﻿EDWIN CNC 3D
+
+Modelado 3D y desdoblado de láminas para corte CNC por plasma.
+
+Dibuje su pieza en 3D (por ejemplo una tolva), seleccione las caras que
+quiere cortar y use el botón "Desdoblar caras": el programa las acuesta en
+plano y guarda un DXF en milímetros, listo para abrir en EDWIN CNC CAD-CAM
+y generar el código G.
+
+------------------------------------------------------------
+CRÉDITOS
+------------------------------------------------------------
+
+Mejoras, desdoblado de caras y marca:
+    EDWIN CNC
+    https://github.com/INGEMAQSEWING/edwin-cnc-3d
+
+Basado en IngeTrazo, modelador 3D libre creado por
+    Marco Sumari Tellez (Arequipa, Perú) y colaboradores
+    https://github.com/ingelibre/ingetrazo
+
+Usa también Qt / PySide6, ezdxf, openskp, manifold3d y NumPy.
+
+Es software libre bajo la licencia GPL-3.0, que se muestra en la
+siguiente página. Es gratis: no tiene costo para el usuario.
