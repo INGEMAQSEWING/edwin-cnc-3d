@@ -128,6 +128,7 @@ hiddenimports = [
     'core.text3d',
     'core.textlabel',
     'core.edwin_desdoblar',   # EDWIN CNC 3D: plugins/edwin_cnc.py
+    'core.edwin_helicoidal',  # EDWIN CNC 3D: Helicoidal (sinfín) en plugins/edwin_cnc.py
 ]
 
 # ezdxf (DXF/DWG import) is imported INSIDE functions — without this the
