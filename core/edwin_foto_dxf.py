@@ -26,6 +26,7 @@ HOJA_MARCA = 25.0            # lado de cada marca (mm)
 HOJA_ANCHO = 170.0           # distancia entre CENTROS de marcas, horizontal (mm)
 HOJA_ALTO = 230.0            # distancia entre CENTROS de marcas, vertical (mm)
 DICCIONARIO = "DICT_4X4_50"
+MAXIMO_PIXELES = 12e6       # tamaño máximo de la foto enderezada
 CONTRASTE_MINIMO = 35       # diferencia mínima de gris entre pieza y fondo (0..255)
 # Orden de las marcas: 0 arriba-izquierda, 1 arriba-derecha, 2 abajo-derecha, 3 abajo-izquierda.
 
@@ -46,9 +47,16 @@ def leer_foto(ruta: str):
     """Abre la foto aunque la ruta tenga tildes o eñes (cv2.imread no puede)."""
     cv2 = _cv()
     datos = np.fromfile(ruta, dtype=np.uint8)
-    img = cv2.imdecode(datos, cv2.IMREAD_COLOR)
+    img = cv2.imdecode(datos, cv2.IMREAD_UNCHANGED)
     if img is None:
         raise ValueError("No se pudo abrir la foto (¿es una imagen JPG o PNG?).")
+    if img.dtype != np.uint8:                      # 16 bits → 8 bits
+        img = (img / 257).astype(np.uint8)
+    if img.ndim == 2:
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    elif img.shape[2] == 4:                         # PNG transparente: sobre papel blanco
+        alfa = img[..., 3:4].astype(np.float32) / 255.0
+        img = (img[..., :3].astype(np.float32) * alfa + 255.0 * (1 - alfa)).astype(np.uint8)
     return img
 
 
@@ -110,8 +118,8 @@ def enderezar(img, puntos_foto, ancho_mm, alto_mm, margen_mm=0.0, ppmm=None, esq
         lado_foto = float(np.linalg.norm(src[1] - src[0]) + np.linalg.norm(src[2] - src[3])) / 2.0
         ppmm = min(max(lado_foto / ancho_mm, 2.0), 10.0)
         tot = (ancho_mm + 2 * margen_mm) * (alto_mm + 2 * margen_mm) * ppmm * ppmm
-        if tot > 36e6:                       # máximo ~36 megapíxeles (memoria de 8 GB)
-            ppmm *= (36e6 / tot) ** 0.5
+        if tot > MAXIMO_PIXELES:             # memoria de un PC de 8 GB con el modelo abierto
+            ppmm *= (MAXIMO_PIXELES / tot) ** 0.5
     T = np.array([[ppmm, 0, margen_mm * ppmm], [0, ppmm, margen_mm * ppmm], [0, 0, 1]], dtype=np.float64)
     w = int(round((ancho_mm + 2 * margen_mm) * ppmm))
     h = int(round((alto_mm + 2 * margen_mm) * ppmm))
@@ -152,23 +160,27 @@ def _zona_marcas(forma, e: Enderezado, lado_marca, extra=3.0):
     return z
 
 
-def _superficie(gris, cuales):
-    """Superficie suave (polinomio de grado 2) ajustada a los píxeles «cuales»."""
+def _superficie(gris, cuales, grado=2):
+    """Superficie suave (polinomio de grado 1 o 2) ajustada a los píxeles «cuales».
+    Se calcula sobre una copia pequeña y se amplía: no gasta memoria."""
+    cv2 = _cv()
     h, w = gris.shape
-    paso = max(1, int((h * w / 40000) ** 0.5))          # ~40 000 muestras
-    ys, xs = np.mgrid[0:h:paso, 0:w:paso]
-    sel = cuales[::paso, ::paso]
-    if sel.sum() < 50:
+    f = min(1.0, 400.0 / max(h, w))
+    hc, wc = max(2, int(h * f)), max(2, int(w * f))
+    g = cv2.resize(gris, (wc, hc), interpolation=cv2.INTER_AREA).astype(np.float64)
+    c = cv2.resize(cuales.astype(np.uint8), (wc, hc), interpolation=cv2.INTER_NEAREST).astype(bool)
+    if c.sum() < 50:
         return None
-    x = xs[sel].astype(np.float64) / w
-    y = ys[sel].astype(np.float64) / h
-    z = gris[::paso, ::paso][sel].astype(np.float64)
-    A = np.stack([np.ones_like(x), x, y, x * x, x * y, y * y], axis=1)
-    coef, *_ = np.linalg.lstsq(A, z, rcond=None)
-    Y, X = np.mgrid[0:h, 0:w].astype(np.float32)
-    X /= w
-    Y /= h
-    sup = coef[0] + coef[1] * X + coef[2] * Y + coef[3] * X * X + coef[4] * X * Y + coef[5] * Y * Y
+    ys, xs = np.nonzero(c)
+    x, y, z = xs / wc, ys / hc, g[c]
+    cols = [np.ones_like(x), x, y] + ([x * x, x * y, y * y] if grado == 2 else [])
+    coef, *_ = np.linalg.lstsq(np.stack(cols, axis=1), z, rcond=None)
+    X = (np.arange(wc) / wc)[None, :]
+    Y = (np.arange(hc) / hc)[:, None]
+    sup = coef[0] + coef[1] * X + coef[2] * Y
+    if grado == 2:
+        sup = sup + coef[3] * X * X + coef[4] * X * Y + coef[5] * Y * Y
+    sup = cv2.resize(sup.astype(np.float32), (w, h), interpolation=cv2.INTER_LINEAR)
     return np.clip(sup, 1.0, None), float(z.mean())
 
 
@@ -187,13 +199,23 @@ def _parejar_luz(gris, tipo, validos):
     """Quita la luz dispareja (un lado más oscuro, sombra suave del celular).
 
     Se ajusta una superficie suave al FONDO y se divide la foto por ella, en
-    3 pasadas: la primera con todo, las siguientes sin lo que parece pieza. Si
-    no hay contraste (hoja vacía) se usa todo como fondo."""
+    3 pasadas. El primer fondo sale de la foto sin corregir (lo claro, si la
+    pieza es oscura); si no hay contraste (hoja vacía) todo es fondo. Si el
+    fondo es poco (pieza que llena la hoja) se usa una superficie plana
+    inclinada (grado 1), que no se dispara hacia el centro."""
     cv2 = _cv()
-    fondo = validos.copy()
+    u, contraste = _otsu(gris[validos], tipo)
+    if contraste < CONTRASTE_MINIMO:
+        fondo = validos.copy()
+    else:
+        _, m = cv2.threshold(gris, u, 255, tipo)
+        fondo = validos & (m == 0)
     nivel = gris
     for _ in range(3):
-        r = _superficie(gris, fondo)
+        parte = fondo.sum() / max(1, validos.sum())
+        if parte < 0.15:                      # casi todo es pieza: mejor no tocar la luz
+            return nivel
+        r = _superficie(gris, fondo, grado=2 if parte >= 0.5 else 1)
         if r is None:
             break
         sup, media = r
@@ -225,12 +247,17 @@ def mascara(e: Enderezado, aj: Ajustes, lado_marca=None):
             m[:] = 0
     else:
         u, m = cv2.threshold(gris, int(aj.umbral), 255, tipo)
+    # ¿la pieza se mete en el cuadro de alguna marca? (ahí se borra: quedaría recortada)
+    anillo = marcas & ~_zona_marcas(gris.shape, e, lado_marca, extra=0.0) if lado_marca else marcas
+    m_tapada = m.copy()
+    m_tapada[~anillo] = 0
     m[marcas] = 0
     r = max(1, int(round(e.ppmm * 0.5)))
     el = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
     m = cv2.morphologyEx(m, cv2.MORPH_OPEN, el)
     m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, el)
-    return m, int(u)
+    m_tapada = cv2.morphologyEx(m_tapada, cv2.MORPH_OPEN, el)
+    return m, int(u), m_tapada
 
 
 def _limpiar(poli, tol):
@@ -255,11 +282,12 @@ def _limpiar(poli, tol):
     return _esquinas(pts, tol)
 
 
-def _esquinas(pts, tol, corto=2.5, giro_minimo=30.0):
+def _esquinas(pts, tol, corto=2.5, giro_minimo=60.0):
     """El desenfoque redondea las esquinas y el contorno sale con un «chaflán»
     cortísimo. Si un tramo mide menos de «corto» mm, los lados giran más de
-    «giro_minimo» grados (una esquina, no una curva) y sus rectas se cruzan
-    cerca, los dos puntos se cambian por ese cruce."""
+    «giro_minimo» grados, los lados vecinos son largos (rectas de verdad, no
+    los tramos de un hueco redondo pequeño) y sus rectas se cruzan cerca, los
+    dos puntos se cambian por ese cruce."""
     cambio = True
     while cambio and len(pts) > 3:
         cambio = False
@@ -271,6 +299,8 @@ def _esquinas(pts, tol, corto=2.5, giro_minimo=30.0):
             # cruce de la recta a-b con la recta c-d
             r = (b[0] - a[0], b[1] - a[1])
             q = (d[0] - c[0], d[1] - c[1])
+            if (r[0] ** 2 + r[1] ** 2) ** 0.5 < 3 * corto or (q[0] ** 2 + q[1] ** 2) ** 0.5 < 3 * corto:
+                continue
             den = r[0] * q[1] - r[1] * q[0]
             if abs(den) < 1e-9:
                 continue
@@ -288,6 +318,21 @@ def _esquinas(pts, tol, corto=2.5, giro_minimo=30.0):
             cambio = True
             break
     return pts
+
+
+def ordenar_esquinas(puntos):
+    """Las 4 esquinas marcadas a mano, en sentido horario en la foto (Y hacia
+    abajo) y empezando por la primera que marcó el usuario (arriba-izquierda).
+    Devuelve (puntos ordenados, True si hubo que reordenarlos)."""
+    pts = [tuple(map(float, p)) for p in puntos]
+    cx = sum(p[0] for p in pts) / 4.0
+    cy = sum(p[1] for p in pts) / 4.0
+    # en la foto (Y hacia abajo) el ángulo creciente es el sentido HORARIO visto en pantalla
+    orden = sorted(range(4), key=lambda i: math.atan2(pts[i][1] - cy, pts[i][0] - cx))
+    k = orden.index(0)
+    orden = orden[k:] + orden[:k]
+    nuevos = [pts[i] for i in orden]
+    return nuevos, orden != [0, 1, 2, 3]
 
 
 def _a_mm(pts, e: Enderezado):
@@ -309,7 +354,7 @@ def _area(poli):
 def contornos(e: Enderezado, aj: Ajustes, lado_marca=None):
     """Las piezas encontradas, de la más grande a la más pequeña."""
     cv2 = _cv()
-    m, _ = mascara(e, aj, lado_marca)
+    m, _, tapada = mascara(e, aj, lado_marca)
     cs, jer = cv2.findContours(m, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
     if jer is None:
         return []
@@ -346,6 +391,13 @@ def contornos(e: Enderezado, aj: Ajustes, lado_marca=None):
         area = _area(cont) + sum(_area(hh) for hh in huecos)
         p = Pieza(cont, huecos, max(xs) - min(xs), max(ys) - min(ys), area)
         p.toca_borde = x <= 1 or y <= 1 or x + w >= m.shape[1] - 1 or y + h >= m.shape[0] - 1
+        if tapada.any():
+            # dilatar un poco la pieza y ver si choca con lo que se borró junto a una marca
+            k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+            sola = np.zeros_like(m)
+            cv2.drawContours(sola, [c], -1, 255, -1)
+            if (cv2.dilate(sola, k) & tapada).any():
+                p.toca_borde = True
         piezas.append(p)
     piezas.sort(key=lambda p: -p.area)
     return piezas[:1] if aj.solo_la_mayor else piezas
@@ -378,7 +430,7 @@ def guardar_dxf(piezas, ruta, nombre="PIEZA", mover_al_origen=True):
 
 
 def procesar_con_hoja(img, aj: Ajustes | None = None, ancho=HOJA_ANCHO, alto=HOJA_ALTO, lado_marca=HOJA_MARCA,
-                      margen_mm=None):
+                      margen_mm=None, alineadas=True):
     """Todo de una vez con las marcas (hoja EDWIN o 4 marcas grandes)."""
     aj = aj or Ajustes()
     centros, esquinas = buscar_marcas(img)
@@ -389,6 +441,9 @@ def procesar_con_hoja(img, aj: Ajustes | None = None, ancho=HOJA_ANCHO, alto=HOJ
             "Que se vean las 4 completas, sin reflejo, sin sombra encima y con la foto enfocada.")
     if margen_mm is None:
         margen_mm = 0.0
+    # Las 16 esquinas solo sirven si las marcas están alineadas con el rectángulo,
+    # como en la hoja impresa. Las 4 marcas grandes sueltas casi nunca lo están:
+    # para ellas, solo los 4 centros.
     e = enderezar(img, [centros[i] for i in range(4)], ancho, alto, margen_mm=margen_mm,
-                  esquinas_marcas=esquinas, lado_marca=lado_marca)
+                  esquinas_marcas=esquinas if alineadas else None, lado_marca=lado_marca)
     return e, contornos(e, aj, lado_marca)

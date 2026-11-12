@@ -46,7 +46,7 @@ jobs:
           pip install "openskp @ git+https://github.com/iamahsanmehmood/openskp@291700bc213655a00461838de71e5f206311e619#subdirectory=packages/python"
           python -c "import openskp, openskp.legacy; print('openskp OK')"
 
-      - name: Pruebas EDWIN (desdoblado y botón)
+      - name: Pruebas EDWIN (desdoblado, botón, helicoidal, escala y foto)
         shell: bash
         env:
           QT_QPA_PLATFORM: offscreen
@@ -54,6 +54,10 @@ jobs:
         run: |
           python edwin/pruebas/pruebas_desdoblar.py
           python edwin/pruebas/prueba_plugin.py
+          python edwin/pruebas/prueba_helicoidal.py
+          python edwin/pruebas/prueba_escala.py
+          python edwin/pruebas/prueba_foto_dxf.py
+          python edwin/pruebas/prueba_foto_ventana.py
 
       - name: Rust
         uses: dtolnay/rust-toolchain@stable

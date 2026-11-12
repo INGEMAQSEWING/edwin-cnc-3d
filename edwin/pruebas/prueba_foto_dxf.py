@@ -169,5 +169,89 @@ try:
 except ValueError:
     revisar("archivo que no es foto: avisa", True)
 
+# ======================= casos que encontró la revisión (2026-11-11) =======================
+def hoja_con(dibujar, semilla=5, **foto):
+    """Hoja con marcas + lo que dibuje la función (recibe la imagen y el centro de la marca 0 en px)."""
+    img = hoja_con_pieza(pieza=False)
+    dibujar(img, OX * PP, OY * PP)
+    return fotografiar(img, semilla=semilla, **foto)
+
+
+# R1. pieza grande (más de la mitad de la zona): sin huecos falsos
+for w, h in [(120, 170), (140, 200)]:
+    def placa(img, x0, y0, w=w, h=h):
+        cx, cy = x0 + fd.HOJA_ANCHO / 2 * PP, y0 + fd.HOJA_ALTO / 2 * PP
+        cv2.rectangle(img, (int(cx - w / 2 * PP), int(cy - h / 2 * PP)), (int(cx + w / 2 * PP), int(cy + h / 2 * PP)),
+                      (70, 70, 70), -1)
+    e, pz = fd.procesar_con_hoja(hoja_con(placa, luz=0.3))
+    ok = len(pz) == 1 and not pz[0].huecos and abs(pz[0].area - w * h) / (w * h) < 0.02
+    revisar(f"placa grande {w}x{h}: sin hueco falso", ok,
+            [(round(p.ancho), round(p.alto), len(p.huecos), round(p.area)) for p in pz])
+
+# R2. huecos redondos pequeños: redondos y de su medida
+def brida(img, x0, y0):
+    cx, cy = x0 + fd.HOJA_ANCHO / 2 * PP, y0 + fd.HOJA_ALTO / 2 * PP
+    cv2.rectangle(img, (int(cx - 60 * PP), int(cy - 40 * PP)), (int(cx + 60 * PP), int(cy + 40 * PP)), (60, 60, 60), -1)
+    for k, d in enumerate([5, 6, 8, 10, 12]):
+        cv2.circle(img, (int(cx - 45 * PP + k * 22 * PP), int(cy)), int(d / 2 * PP), (245, 245, 245), -1)
+e, pz = fd.procesar_con_hoja(hoja_con(brida, semilla=8))
+diam = sorted(max(x for x, _ in hh) - min(x for x, _ in hh) for hh in pz[0].huecos) if pz else []
+revisar(f"huecos pequeños Ø5..Ø12 con su medida (salen {[round(d, 1) for d in diam]})",
+        len(diam) == 5 and all(abs(d - r) < 0.6 for d, r in zip(diam, [5, 6, 8, 10, 12])), diam)
+revisar("huecos pequeños: redondos (8 o más lados)", pz and all(len(hh) >= 8 for hh in pz[0].huecos),
+        [len(hh) for hh in pz[0].huecos] if pz else None)
+
+# R3. 4 marcas grandes sueltas y giradas: la pieza sale bien usando solo los centros
+P2 = 2.0                                       # 2 px/mm, rectángulo 600 x 600, marcas de 150
+lienzo = np.full((int(900 * P2), int(900 * P2), 3), 240, np.uint8)
+cen = [(150, 150), (750, 150), (750, 750), (150, 750)]
+for i, ((cx, cy), giro) in enumerate(zip(cen, [3, 90, 180, -4])):
+    lado = int(150 * P2)
+    m = cv2.cvtColor(cv2.resize(fd.imagen_marca(i, 200), (lado, lado), interpolation=cv2.INTER_NEAREST), cv2.COLOR_GRAY2BGR)
+    m = cv2.copyMakeBorder(m, lado // 2, lado // 2, lado // 2, lado // 2, cv2.BORDER_CONSTANT, value=(255, 255, 255))
+    R = cv2.getRotationMatrix2D((m.shape[1] / 2, m.shape[0] / 2), giro, 1.0)
+    m = cv2.warpAffine(m, R, (m.shape[1], m.shape[0]), borderValue=(240, 240, 240))
+    x0, y0 = int(cx * P2 - m.shape[1] / 2), int(cy * P2 - m.shape[0] / 2)
+    lienzo[y0:y0 + m.shape[0], x0:x0 + m.shape[1]] = m
+cv2.rectangle(lienzo, (int(350 * P2), int(400 * P2)), (int(550 * P2), int(500 * P2)), (50, 50, 50), -1)
+foto = fotografiar(lienzo, torcer=0.08, semilla=12)
+e, pz = fd.procesar_con_hoja(foto, ancho=600, alto=600, lado_marca=150, alineadas=False)
+revisar(f"marcas sueltas giradas: pieza 200 x 100 (sale {pz[0].ancho:.1f} x {pz[0].alto:.1f})" if pz else "marcas sueltas: pieza",
+        pz and abs(pz[0].ancho - 200) < 2 and abs(pz[0].alto - 100) < 2)
+
+# R4. esquinas a mano en otro orden: se ordenan solas
+orden, cambio = fd.ordenar_esquinas([(0, 0), (0, 10), (10, 10), (10, 0)])        # antihorario en pantalla
+revisar("esquinas al revés: se ordenan", orden == [(0, 0), (10, 0), (10, 10), (0, 10)] and cambio, orden)
+orden, cambio = fd.ordenar_esquinas([(0, 0), (10, 0), (0, 10), (10, 10)])        # en Z
+revisar("esquinas en Z: se ordenan", orden == [(0, 0), (10, 0), (10, 10), (0, 10)] and cambio, orden)
+orden, cambio = fd.ordenar_esquinas([(1, 1), (11, 0), (12, 9), (0, 10)])
+revisar("esquinas bien puestas: no se tocan", not cambio, orden)
+
+# R5. pieza metida en el cuadro de una marca: avisa
+def invasora(img, x0, y0):
+    cv2.rectangle(img, (int(x0 + 14 * PP), int(y0 + 14 * PP)), (int(x0 + 156 * PP), int(y0 + 100 * PP)), (60, 60, 60), -1)
+e, pz = fd.procesar_con_hoja(hoja_con(invasora, semilla=9))
+revisar("pieza metida en una marca: avisa que puede estar recortada", pz and pz[0].toca_borde)
+e, pz = fd.procesar_con_hoja(hoja_con(lambda img, x0, y0: cv2.rectangle(
+    img, (int(x0 + 40 * PP), int(y0 + 40 * PP)), (int(x0 + 130 * PP), int(y0 + 120 * PP)), (60, 60, 60), -1), semilla=9))
+revisar("pieza lejos de las marcas: no avisa", pz and not pz[0].toca_borde)
+
+# R6. foto enorme: la foto enderezada no pasa de 12 megapíxeles
+grande = np.full((6000, 8000, 3), 230, np.uint8)
+e = fd.enderezar(grande, [(100, 100), (7900, 100), (7900, 5900), (100, 5900)], 1000, 800)
+revisar(f"foto de 48 MP: enderezada ≤ 12 MP (sale {e.imagen.shape[0] * e.imagen.shape[1] / 1e6:.1f})",
+        e.imagen.shape[0] * e.imagen.shape[1] <= 12.2e6)
+
+# R9. PNG transparente: el fondo transparente es blanco, no negro
+png = np.zeros((200, 200, 4), np.uint8)
+png[50:150, 50:150] = (40, 40, 40, 255)
+ruta = os.path.join(SALIDA, "transparente.png")
+cv2.imencode(".png", png)[1].tofile(ruta)
+im = fd.leer_foto(ruta)
+revisar("PNG transparente: fondo blanco y pieza oscura", im.shape == (200, 200, 3) and im[5, 5].min() > 250 and im[100, 100].max() < 60)
+gris = np.full((50, 50), 128, np.uint8)
+cv2.imencode(".png", gris)[1].tofile(ruta)
+revisar("foto en gris: se abre en color", fd.leer_foto(ruta).shape == (50, 50, 3))
+
 print(f"\n{'TODO BIEN' if mal == 0 else f'{mal} con problemas'}")
 sys.exit(1 if mal else 0)

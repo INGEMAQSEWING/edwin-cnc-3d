@@ -238,7 +238,7 @@ def _objetivos_escala(scene):
 
     sel = list(scene.selection)
     if sel:
-        grupos = [e for e in sel if isinstance(e, Group)]
+        grupos = [e for e in sel if isinstance(e, Group) and not getattr(e, "locked", False)]
         imagenes = [e for e in sel if isinstance(e, ImagePlane)]
         pos = []
         for e in sel:
@@ -256,7 +256,7 @@ def _objetivos_escala(scene):
         if imagenes:
             partes.append(f"{len(imagenes)} imagen(es)")
         return grupos, pos, imagenes, "solo lo seleccionado: " + (", ".join(partes) or "nada")
-    grupos = list(scene.groups)
+    grupos = [g for g in scene.groups if not getattr(g, "locked", False)]
     pos = [v.position for v in scene.mesh.vertices]
     imagenes = list(scene.image_planes)
     return grupos, pos, imagenes, "TODO el modelo (no hay nada seleccionado)"
@@ -301,7 +301,8 @@ class _VentanaEscala(QDialog):
         form.addRow("Medida REAL (la de la cinta):", self.real)
         self.info = QLabel()
         self.info.setWordWrap(True)
-        aviso = QLabel(f"Se va a escalar {que}.<br>Se puede deshacer con Ctrl+Z.")
+        aviso = QLabel(f"Se va a escalar {que}.<br>No se escalan: grupos bloqueados, líneas guía, "
+                       "textos ni cotas.<br>Se puede deshacer con Ctrl+Z.")
         aviso.setWordWrap(True)
         botones = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         botones.button(QDialogButtonBox.Ok).setText("Escalar")
@@ -762,7 +763,10 @@ class _VentanaFoto(QDialog):
                                        "(por ejemplo, las esquinas de la lámina).")
                     return
                 self.lado_marca = None
-                self.enderezado = fd.enderezar(self.foto, self.esquinas, self.ancho.value(), self.alto.value())
+                ordenadas, reordenadas = fd.ordenar_esquinas(self.esquinas)
+                self._aviso_orden = ("Las esquinas no estaban en el orden pedido; se ordenaron solas "
+                                     "(empezando por la primera que marcó)." if reordenadas else "")
+                self.enderezado = fd.enderezar(self.foto, ordenadas, self.ancho.value(), self.alto.value())
             else:
                 centros, esquinas = fd.buscar_marcas(self.foto)
                 faltan = [i for i in range(4) if i not in centros]
@@ -774,8 +778,9 @@ class _VentanaFoto(QDialog):
                 else:
                     ancho, alto, lado = self.ancho.value(), self.alto.value(), self.lado_grande.value()
                 self.lado_marca = lado
+                # 16 esquinas solo con la hoja (marcas alineadas); marcas sueltas: los 4 centros
                 self.enderezado = fd.enderezar(self.foto, [centros[i] for i in range(4)], ancho, alto,
-                                               esquinas_marcas=esquinas, lado_marca=lado)
+                                               esquinas_marcas=esquinas if m == 0 else None, lado_marca=lado)
         except Exception as e:            # noqa: BLE001
             self.vista.poner(_qimage(self.foto))
             self._mostrar_info(f"<b style='color:#c0392b'>{e}</b>")
@@ -809,10 +814,13 @@ class _VentanaFoto(QDialog):
             if p.huecos:
                 t += f", {len(p.huecos)} hueco(s)"
             if getattr(p, "toca_borde", False):
-                t += " <b style='color:#c0392b'>¡toca el borde: puede estar cortada!</b>"
+                t += (" <b style='color:#c0392b'>¡toca el borde o se mete en una marca: "
+                      "puede estar recortada!</b>")
             lineas.append(t)
         if e.error_mm is not None:
             lineas.append(f"Calce de las marcas: ±{e.error_mm:.2f} mm.")
+        if self.modo.currentIndex() == 2 and getattr(self, "_aviso_orden", ""):
+            lineas.append(f"<i>{self._aviso_orden}</i>")
         lineas.append("Rojo = contorno de CORTE, naranja = huecos. Revise que la medida coincida con la cinta "
                       "antes de cortar.")
         self._mostrar_info("<br>".join(lineas))

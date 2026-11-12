@@ -92,6 +92,16 @@ revisar("la cara suelta no se tocó", xs[-1] == 200.0, xs)
 revisar("el grupo sí (100 → 200 mm de ancho)", gx[0] == 1000.0 and gx[-1] == 1200.0, gx)
 revisar("la imagen no se tocó", abs(im.u.length() - 0.4) < 1e-6)
 
+# --- grupo bloqueado: no se escala
+s, g, im = armar()
+g.locked = True
+vp = VP(s)
+plugin.aplicar_escala(vp, QVector3D(0, 0, 0), 3.0)
+gx = sorted(round(v.position.x() * 1000, 3) for v in g.mesh.vertices)
+xs = sorted(round(v.position.x() * 1000, 3) for v in s.mesh.vertices)
+revisar("grupo bloqueado: no se escala", gx[0] == 1000.0 and gx[-1] == 1100.0, gx)
+revisar("…pero lo demás sí", xs[-1] == 600.0, xs)
+
 # --- selección vacía de verdad (nada que escalar)
 s2 = Scene()
 revisar("modelo vacío: no hace nada", not plugin.aplicar_escala(VP(s2), centro, 2.0))
