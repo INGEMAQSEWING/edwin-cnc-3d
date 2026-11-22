@@ -2577,12 +2577,25 @@ class MaterialsPanel(QWidget):
             auto.setChecked(mat.finish not in fin.FINISHES)
             auto.triggered.connect(lambda: self._set_finish(name, None))
             sub.addSeparator()
+            from core import edwin_materiales as em
             for key in fin.FINISHES:
+                if key in em.ACABADOS:
+                    continue
                 act = sub.addAction(tr(fin.LABELS[key]))
                 act.setCheckable(True)
                 act.setChecked(mat.finish == key)
                 act.triggered.connect(
                     lambda _c=False, k=key: self._set_finish(name, k))
+            # EDWIN CNC: Materiales EDWIN, por grupos.
+            sub.addSeparator()
+            for grupo in em.GRUPOS:
+                gm = sub.addMenu(grupo)
+                for key in em.del_grupo(grupo):
+                    act = gm.addAction(em.LABELS[key])
+                    act.setCheckable(True)
+                    act.setChecked(mat.finish == key)
+                    act.triggered.connect(
+                        lambda _c=False, k=key: self._set_finish(name, k))
         if not menu.isEmpty():
             menu.exec(QCursor.pos())
 

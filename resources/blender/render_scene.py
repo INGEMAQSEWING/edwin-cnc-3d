@@ -26,6 +26,7 @@ toward each new camera instead of exporting the model again.
 """
 import json
 import math
+import os
 import sys
 
 import bpy
@@ -82,10 +83,16 @@ def _ripples(mat, bsdf, scale=6.0, strength=0.12):
     links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
 
 
+# EDWIN CNC: Materiales EDWIN (metales, pinturas, llantas) y el estudio.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import edwin_materiales_blender as edwin  # noqa: E402
+
+
 def apply_finishes():
     """Turn IngeTrazo's finish (glTF extras, core.finish) into a real
     material: the importer keeps extras as custom properties."""
     counts = {}
+    ejes = edwin.preparar_ejes(say)
     for mat in bpy.data.materials:
         finish = mat.get("ingetrazo_finish")
         if not finish or not mat.node_tree:
@@ -95,6 +102,9 @@ def apply_finishes():
         if bsdf is None:
             continue
         counts[finish] = counts.get(finish, 0) + 1
+        if finish in edwin.CLAVES:
+            edwin.aplicar(mat, bsdf, finish, ejes.get(mat.name))
+            continue
         spec = ("Specular IOR Level", "Specular")
         if finish == "matte":
             _set(bsdf, ("Roughness",), 0.9)
@@ -363,6 +373,8 @@ def main():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
     import_model(job["glb"])
+    if job.get("engine") == "cycles" and job.get("bevel", True):
+        edwin.bordes_suaves(float(job.get("bevel_radius", 0.0015)))
     apply_finishes()
     figures = find_figures()
     w, h = int(job["width"]), int(job["height"])
@@ -375,13 +387,15 @@ def main():
         add_moon(scene)
     elif ambience == "overcast":
         set_plain_world(scene, (0.62, 0.66, 0.70), 1.0, "overcast")
+    elif ambience == "studio":
+        edwin.estudio(scene, job["camera"], say)
     else:
         if sun_dir is not None:
             add_sun(scene, sun_dir, float(job.get("sun_strength", 4.0)))
         set_world(scene, sun_dir)
     add_lights(scene, job.get("lights") or [])
     ground = job.get("ground")
-    if ground:
+    if ground and ambience != "studio":     # el estudio trae su propio piso
         add_ground(scene, ground["z"], ground["size"], ground["color"])
     set_engine(scene, job.get("engine", "eevee"), int(job.get("samples", 64)))
     r = scene.render
@@ -393,8 +407,18 @@ def main():
     # take the punchier look when this Blender has it.
     view = scene.view_settings
     view.exposure = float(job.get("exposure", -0.6))
-    for look in ("AgX - Medium High Contrast", "Medium High Contrast",
-                 "AgX - Punchy", "Punchy"):
+    neutral = False
+    if ambience == "studio":
+        # EDWIN CNC: foto de producto = colores fieles (la pintura no se
+        # lava como con AgX): Khronos PBR Neutral cuando este Blender lo trae.
+        try:
+            view.view_transform = "Khronos PBR Neutral"
+            neutral = True
+        except TypeError:
+            pass
+    for look in (() if neutral else (
+            "AgX - Medium High Contrast", "Medium High Contrast",
+            "AgX - Punchy", "Punchy")):
         try:
             view.look = look
             break

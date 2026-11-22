@@ -130,6 +130,7 @@ hiddenimports = [
     'core.edwin_desdoblar',   # EDWIN CNC 3D: plugins/edwin_cnc.py
     'core.edwin_helicoidal',  # EDWIN CNC 3D: Helicoidal (sinfín) en plugins/edwin_cnc.py
     'core.edwin_foto_dxf',    # EDWIN CNC 3D: Foto → DXF (usa OpenCV)
+    'core.edwin_materiales',  # EDWIN CNC 3D: Materiales EDWIN (core.finish)
     'cv2',
 ]
 

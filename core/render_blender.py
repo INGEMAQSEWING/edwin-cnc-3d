@@ -296,10 +296,11 @@ def ground_dict(scene) -> Optional[dict]:
 
 #: Day = the sun of the Shadows panel; night = no sun, a dark sky and the
 #: user's lights; overcast = no sun, a bright even sky, soft shadows.
-AMBIENCES = ("day", "night", "overcast")
+AMBIENCES = ("day", "night", "overcast", "studio")
+#: EDWIN CNC: «studio» = estudio fotográfico (fondo curvo y cajas de luz).
 #: Exposure per ambience: a daylit scene washes out under AgX at 0, a night
 #: lit by lamps does not.
-EXPOSURE = {"day": -0.6, "night": 0.0, "overcast": -0.3}
+EXPOSURE = {"day": -0.6, "night": 0.0, "overcast": -0.3, "studio": -0.15}
 
 LIGHT_KINDS = ("point", "spot")
 #: A light's colour is its temperature, from a candle to a blue sky.
@@ -475,6 +476,10 @@ def command(found: BlenderFound, job: Path) -> list:
     import shutil
     script = job.parent / render_script().name
     shutil.copyfile(render_script(), script)
+    # EDWIN CNC: el módulo de Materiales EDWIN viaja junto al script.
+    extra = render_script().with_name("edwin_materiales_blender.py")
+    if extra.exists():
+        shutil.copyfile(extra, job.parent / extra.name)
     return [*found.command, "-b", "--factory-startup",
             "--python", str(script), "--", str(job)]
 

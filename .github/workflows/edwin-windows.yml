@@ -58,6 +58,7 @@ jobs:
           python edwin/pruebas/prueba_escala.py
           python edwin/pruebas/prueba_foto_dxf.py
           python edwin/pruebas/prueba_foto_ventana.py
+          python edwin/pruebas/prueba_materiales.py
 
       - name: Rust
         uses: dtolnay/rust-toolchain@stable

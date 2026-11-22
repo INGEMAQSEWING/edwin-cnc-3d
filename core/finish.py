@@ -65,6 +65,15 @@ _WORDS = (
     ("satin", r"madera|wood|madeira|parquet|parquet|laminad|laminate|"
               r"cuero|leather|couro|satin|satinad|semi"),
 )
+# EDWIN CNC: acabados extra (core.edwin_materiales) — metales, pinturas,
+# llantas. Se suman a los de arriba sin cambiar cómo se adivinan esos.
+from core import edwin_materiales as _em  # noqa: E402
+
+FINISHES = FINISHES + tuple(_em.ACABADOS)
+LABELS.update(_em.LABELS)
+PBR.update(_em.PBR)
+_WORDS = tuple(_em.PALABRAS) + _WORDS
+
 _RX = [(f, re.compile(r"(?:^|[^a-záéíóúñç])(?:" + pat + r")", re.IGNORECASE))
        for f, pat in _WORDS]
 

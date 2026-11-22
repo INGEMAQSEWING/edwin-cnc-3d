@@ -539,7 +539,8 @@ class RenderPanel(QWidget):
         self._ambience = QComboBox()
         for key, label in (("day", tr("Day — the sun of the Shadows panel")),
                            ("night", tr("Night — your lights")),
-                           ("overcast", tr("Overcast — soft light"))):
+                           ("overcast", tr("Overcast — soft light")),
+                           ("studio", "Estudio — fondo curvo y cajas de luz")):
             self._ambience.addItem(label, key)
         self._ambience.activated.connect(self._on_ambience)
         form.addRow(self._ambience)
@@ -856,6 +857,10 @@ class RenderPanel(QWidget):
                                  "{n} light(s) switched on.", n=n))
         elif amb == "overcast":
             self._sun.setText(tr("No sun: an even grey sky, soft shadows."))
+        elif amb == "studio":
+            self._sun.setText("Estudio fotográfico: fondo curvo gris, cajas de "
+                              "luz que se reflejan en los metales y bordes "
+                              "suavizados. Tus luces se suman.")
         elif rb.sun_toward(self.app.scene) is None:
             self._sun.setText(tr("Night at the date and time of the Shadows "
                                  "panel: sky light only."))
