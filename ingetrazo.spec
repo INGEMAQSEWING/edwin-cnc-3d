@@ -131,6 +131,8 @@ hiddenimports = [
     'core.edwin_helicoidal',  # EDWIN CNC 3D: Helicoidal (sinfín) en plugins/edwin_cnc.py
     'core.edwin_foto_dxf',    # EDWIN CNC 3D: Foto → DXF (usa OpenCV)
     'core.edwin_materiales',  # EDWIN CNC 3D: Materiales EDWIN (core.finish)
+    'core.edwin_piezas3d',    # EDWIN CNC 3D: Pieza por medidas (tolvas, transiciones, tubos)
+    'core.edwin_nesting',     # EDWIN CNC 3D: Acomodar en láminas (nesting, usa numpy)
     'cv2',
 ]
 

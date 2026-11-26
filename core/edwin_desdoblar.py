@@ -502,8 +502,9 @@ def medidas(pieza):
 
 
 # ---------------------------------------------------------------- DXF
-def guardar_dxf(piezas, ruta, nombre="PIEZA"):
-    """DXF R2000 en mm con capas CORTE / MARCADO / REFERENCIA (las mismas del CAD-CAM 2D)."""
+def guardar_dxf(piezas, ruta, nombre="PIEZA", laminas=None):
+    """DXF R2000 en mm con capas CORTE / MARCADO / REFERENCIA (las mismas del CAD-CAM 2D).
+    laminas: [(x0, y0, ancho, alto, texto)] rectángulos de las láminas (acomodo), en REFERENCIA."""
     import ezdxf
     doc = ezdxf.new("R2000", setup=True)
     doc.header["$INSUNITS"] = 4      # milímetros
@@ -533,5 +534,10 @@ def guardar_dxf(piezas, ruta, nombre="PIEZA"):
         if pz.dobleces:
             msp.add_text("Plano visto por la cara de AFUERA", height=7,
                          dxfattribs={"layer": "REFERENCIA"}).set_placement((x0, y0 - 32))
+    for (lx, ly, lw, lh, texto) in (laminas or []):
+        msp.add_lwpolyline([(lx, ly), (lx + lw, ly), (lx + lw, ly + lh), (lx, ly + lh)], close=True,
+                           dxfattribs={"layer": "REFERENCIA"})
+        msp.add_text(texto, height=max(10.0, lh * 0.025),
+                     dxfattribs={"layer": "REFERENCIA"}).set_placement((lx, ly + lh + lh * 0.015))
     doc.saveas(ruta)
     return ruta

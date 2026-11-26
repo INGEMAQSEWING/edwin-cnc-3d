@@ -26,7 +26,9 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPushButton,
     QSpinBox,
+    QStackedWidget,
     QToolBar,
     QVBoxLayout,
     QWidget,
@@ -34,6 +36,8 @@ from PySide6.QtWidgets import (
 
 from core import edwin_desdoblar as ed
 from core import edwin_helicoidal as eh
+from core import edwin_nesting as nz
+from core import edwin_piezas3d as p3
 
 MM = 1000.0          # el modelo guarda metros; el plano sale en milímetros
 CLAVE_CARPETA = "edwin/carpeta_dxf"
@@ -85,10 +89,12 @@ class _Vista(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.piezas = []
+        self.laminas = []
         self.setMinimumSize(520, 300)
 
-    def poner(self, piezas):
+    def poner(self, piezas, laminas=()):
         self.piezas = piezas
+        self.laminas = list(laminas)
         self.update()
 
     def paintEvent(self, _ev):
@@ -100,6 +106,8 @@ class _Vista(QWidget):
             p.drawText(self.rect(), Qt.AlignCenter, "Nada para mostrar")
             return
         pts = [q for pz in self.piezas for l in pz.contornos for q in ed._puntos_arco(l)]
+        for lx, ly, lw, lh, _t in self.laminas:
+            pts += [(lx, ly), (lx + lw, ly + lh)]
         x0, x1 = min(q[0] for q in pts), max(q[0] for q in pts)
         y0, y1 = min(q[1] for q in pts), max(q[1] for q in pts)
         m = 16
@@ -110,6 +118,11 @@ class _Vista(QWidget):
         def a_pantalla(x, y):
             return QPointF(ox + (x - x0) * esc, self.height() - (oy + (y - y0) * esc))
 
+        if self.laminas:
+            p.setPen(QPen(QColor(200, 150, 40), 1.2, Qt.DashLine))
+            for lx, ly, lw, lh, _t in self.laminas:
+                a, c = a_pantalla(lx, ly), a_pantalla(lx + lw, ly + lh)
+                p.drawRect(min(a.x(), c.x()), min(a.y(), c.y()), abs(c.x() - a.x()), abs(c.y() - a.y()))
         p.setPen(QPen(pal.text().color(), 1.6))
         for pz in self.piezas:
             for l in pz.contornos:
@@ -172,8 +185,15 @@ class _Ventana(QDialog):
         lay.addWidget(self.resumen)
 
         botones = QDialogButtonBox()
+        self.acomodar = botones.addButton("Acomodar en láminas…", QDialogButtonBox.ActionRole)
+        self.acomodar.setToolTip("Acomoda las piezas en láminas (nesting) para gastar el menor material posible.")
+        self.acomodar.clicked.connect(self._acomodar)
+        self.quitar = botones.addButton("Quitar acomodo", QDialogButtonBox.ActionRole)
+        self.quitar.clicked.connect(self._quitar_acomodo)
+        self.quitar.setVisible(False)
         self.guardar = botones.addButton("Guardar DXF…", QDialogButtonBox.AcceptRole)
         botones.addButton("Cerrar", QDialogButtonBox.RejectRole)
+        self.acomodo = None       # (piezas en sus láminas, láminas, resultado)
         botones.accepted.connect(self._guardar)
         botones.rejected.connect(self.reject)
         lay.addWidget(botones)
@@ -183,6 +203,9 @@ class _Ventana(QDialog):
         self._calcular()
 
     def _calcular(self):
+        self.acomodo = None
+        if hasattr(self, "quitar"):
+            self.quitar.setVisible(False)
         try:
             self.piezas = ed.desdoblar(self.malla, angulo_marca=self.angulo.value())
         except Exception as exc:          # noqa: BLE001 - se muestra al usuario
@@ -190,6 +213,7 @@ class _Ventana(QDialog):
             self.resumen.setText(f"<span style='color:#c0392b'>No se pudo desdoblar: {exc}</span>")
             self.vista.poner([])
             self.guardar.setEnabled(False)
+            self.acomodar.setEnabled(False)
             return
         self.vista.poner(self.piezas)
         filas = []
@@ -202,6 +226,43 @@ class _Ventana(QDialog):
                 filas.append(f"&nbsp;&nbsp;<span style='color:#d35400'>⚠ {a}</span>")
         self.resumen.setText("<br>".join(filas))
         self.guardar.setEnabled(bool(self.piezas))
+        self.acomodar.setEnabled(bool(self.piezas))
+        self._texto_desdoblado = self.resumen.text()
+
+    def _acomodar(self):
+        dlg = _VentanaAcomodo(self, len(self.piezas))
+        if dlg.exec() != QDialog.Accepted:
+            return
+        op, copias = dlg.opciones()
+        from PySide6.QtWidgets import QApplication
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            res = nz.acomodar(nz.desde_desdoblado(self.piezas, copias), op)
+            colocadas, laminas = nz.piezas_acomodadas(self.piezas, res, op)
+        finally:
+            QApplication.restoreOverrideCursor()
+        if not colocadas:
+            QMessageBox.warning(self, "EDWIN CNC", "Ninguna pieza cabe en esa lámina. Pruebe una lámina más grande.")
+            return
+        self.acomodo = (colocadas, laminas, res)
+        self.vista.poner(colocadas, laminas)
+        uso = sum(res.uso_por_lamina) / max(1, res.laminas) * 100
+        txt = (f"<b>Acomodadas {len(res.colocadas)} pieza(s) en {res.laminas} lámina(s)</b> de "
+               f"{op.ancho:.0f} × {op.alto:.0f} mm · aprovechamiento medio <b>{uso:.1f} %</b>.")
+        for k, u in enumerate(res.uso_por_lamina, 1):
+            txt += f"<br>&nbsp;&nbsp;Lámina {k}: {u * 100:.1f} %"
+        if res.no_caben:
+            txt += (f"<br><span style='color:#c0392b'>{len(res.no_caben)} pieza(s) no caben ni en una "
+                    "lámina vacía y no van en el DXF.</span>")
+        txt += "<br>Al guardar, el DXF lleva las láminas dibujadas en la capa REFERENCIA."
+        self.resumen.setText(txt)
+        self.quitar.setVisible(True)
+
+    def _quitar_acomodo(self):
+        self.acomodo = None
+        self.quitar.setVisible(False)
+        self.vista.poner(self.piezas)
+        self.resumen.setText(getattr(self, "_texto_desdoblado", ""))
 
     def _guardar(self):
         cfg = QSettings()
@@ -217,7 +278,10 @@ class _Ventana(QDialog):
         if not ruta.lower().endswith(".dxf"):
             ruta += ".dxf"
         try:
-            ed.guardar_dxf(self.piezas, ruta, nombre.upper())
+            if self.acomodo:
+                ed.guardar_dxf(self.acomodo[0], ruta, nombre.upper(), laminas=self.acomodo[1])
+            else:
+                ed.guardar_dxf(self.piezas, ruta, nombre.upper())
         except Exception as exc:          # noqa: BLE001
             QMessageBox.warning(self, "EDWIN CNC", f"No se pudo guardar el DXF:\n{exc}")
             return
@@ -1088,6 +1152,271 @@ def crear_helicoidal(app):
         pass
 
 
+# ---------------------------------------------------------------- acomodar en láminas (nesting)
+CLAVE_NEST = "edwin/acomodo/"
+
+
+class _VentanaAcomodo(QDialog):
+    """Opciones del acomodo: lámina, margen, separación, giros, copias y precisión."""
+
+    GIROS = [("No girar (respetar la veta)", 1), ("Solo voltear (0° y 180°)", 2), ("Cada 90°", 4),
+             ("Cada 45°", 8), ("Cada 15° (más lento)", 24)]
+
+    def __init__(self, parent, n_piezas):
+        super().__init__(parent)
+        self.setWindowTitle("Acomodar en láminas — EDWIN CNC")
+        cfg = QSettings()
+        lay = QVBoxLayout(self)
+        info = QLabel(f"<b>{n_piezas} pieza(s).</b> Se acomodan de la más grande a la más chica, lo más a la "
+                      "izquierda posible, para que lo que sobre quede junto como retal. Las piezas pequeñas "
+                      "pueden caer dentro de los huecos de las grandes.")
+        info.setWordWrap(True)
+        lay.addWidget(info)
+
+        def num(clave, valor, minimo, maximo, sufijo=" mm"):
+            w = QDoubleSpinBox()
+            w.setRange(minimo, maximo)
+            w.setDecimals(1)
+            w.setSuffix(sufijo)
+            try:
+                w.setValue(float(cfg.value(CLAVE_NEST + clave, valor)))
+            except (TypeError, ValueError):
+                w.setValue(valor)
+            return w
+
+        self.ancho = num("ancho", 2440, 50, 100000)
+        self.alto = num("alto", 1220, 50, 100000)
+        self.margen = num("margen", 10, 0, 500)
+        self.separacion = num("separacion", 6, 0, 200)
+        self.separacion.setToolTip("Ancho del corte del plasma más lo que quiera dejar entre piezas "
+                                   "(por ejemplo 2 + 4 mm).")
+        self.giros = QComboBox()
+        self.giros.addItems([t for t, _ in self.GIROS])
+        try:
+            self.giros.setCurrentIndex(int(cfg.value(CLAVE_NEST + "giros", 2)))
+        except (TypeError, ValueError):
+            self.giros.setCurrentIndex(2)
+        self.copias = QSpinBox()
+        self.copias.setRange(1, 500)
+        self.copias.setValue(1)
+        self.precision = QComboBox()
+        self.precision.addItems(["Normal (rápido)", "Fina (aprovecha más, más lento)"])
+        try:
+            self.precision.setCurrentIndex(int(cfg.value(CLAVE_NEST + "precision", 0)))
+        except (TypeError, ValueError):
+            pass
+        form = QFormLayout()
+        form.addRow("Lámina, largo:", self.ancho)
+        form.addRow("Lámina, ancho:", self.alto)
+        form.addRow("Margen al borde:", self.margen)
+        form.addRow("Separación entre piezas:", self.separacion)
+        form.addRow("Girar piezas:", self.giros)
+        form.addRow("Copias de cada pieza:", self.copias)
+        form.addRow("Precisión:", self.precision)
+        lay.addLayout(form)
+        botones = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        botones.button(QDialogButtonBox.Ok).setText("Acomodar")
+        botones.button(QDialogButtonBox.Cancel).setText("Cancelar")
+        botones.accepted.connect(self._aceptar)
+        botones.rejected.connect(self.reject)
+        lay.addWidget(botones)
+
+    def _aceptar(self):
+        cfg = QSettings()
+        for clave, w in (("ancho", self.ancho), ("alto", self.alto), ("margen", self.margen),
+                         ("separacion", self.separacion)):
+            cfg.setValue(CLAVE_NEST + clave, w.value())
+        cfg.setValue(CLAVE_NEST + "giros", self.giros.currentIndex())
+        cfg.setValue(CLAVE_NEST + "precision", self.precision.currentIndex())
+        self.accept()
+
+    def opciones(self):
+        op = nz.Opciones(ancho=self.ancho.value(), alto=self.alto.value(), margen=self.margen.value(),
+                         separacion=self.separacion.value(), giros=self.GIROS[self.giros.currentIndex()][1])
+        grande = max(op.ancho, op.alto) - 2 * op.margen
+        op.celda = max(1.0, grande / 600.0) if self.precision.currentIndex() == 0 else max(0.5, grande / 1400.0)
+        return op, self.copias.value()
+
+
+# ---------------------------------------------------------------- pieza por medidas
+CLAVE_PIEZA = "edwin/pieza/"
+
+
+class _VentanaPieza(QDialog):
+    """Elegir una pieza (tolva, transición, tubo), escribir sus medidas y dibujarla en 3D."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Pieza por medidas — EDWIN CNC")
+        cfg = QSettings()
+        self.tipos = list(p3.PIEZAS)
+        self.tipo = QComboBox()
+        self.tipo.addItems([p3.PIEZAS[t][0] for t in self.tipos] + ["Helicoidal (sinfín)…"])
+        self.paginas = QStackedWidget()
+        self.campos = {}
+        for t in self.tipos:
+            pag = QWidget()
+            form = QFormLayout(pag)
+            ws = {}
+            for clave, etiqueta, valor, minimo, maximo, dec, sufijo in p3.PIEZAS[t][1]:
+                if dec == 0:
+                    w = QSpinBox()
+                    w.setRange(int(minimo), int(maximo))
+                    try:
+                        w.setValue(int(float(cfg.value(f"{CLAVE_PIEZA}{t}/{clave}", valor))))
+                    except (TypeError, ValueError):
+                        w.setValue(int(valor))
+                else:
+                    w = QDoubleSpinBox()
+                    w.setRange(minimo, maximo)
+                    w.setDecimals(dec)
+                    w.setSuffix(sufijo)
+                    try:
+                        w.setValue(float(cfg.value(f"{CLAVE_PIEZA}{t}/{clave}", valor)))
+                    except (TypeError, ValueError):
+                        w.setValue(valor)
+                w.valueChanged.connect(self._actualizar)
+                form.addRow(etiqueta + ":", w)
+                ws[clave] = w
+            self.campos[t] = ws
+            self.paginas.addWidget(pag)
+        pag = QWidget()
+        lh = QVBoxLayout(pag)
+        txt = QLabel("La helicoidal tiene su propia ventana, con el sentido, las vueltas y el dato de la "
+                     "arandela abierta para cortar.")
+        txt.setWordWrap(True)
+        lh.addWidget(txt)
+        abrir = QPushButton("Abrir la ventana de la helicoidal…")
+        abrir.clicked.connect(self._helicoidal)
+        lh.addWidget(abrir)
+        lh.addStretch(1)
+        self.paginas.addWidget(pag)
+
+        self.info = QLabel()
+        self.info.setWordWrap(True)
+        botones = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        botones.button(QDialogButtonBox.Ok).setText("Dibujar")
+        botones.button(QDialogButtonBox.Cancel).setText("Cancelar")
+        botones.accepted.connect(self._aceptar)
+        botones.rejected.connect(self.reject)
+        self._ok = botones.button(QDialogButtonBox.Ok)
+        self.pidio_helicoidal = False
+
+        caja = QVBoxLayout(self)
+        fila = QFormLayout()
+        fila.addRow("Pieza:", self.tipo)
+        caja.addLayout(fila)
+        caja.addWidget(self.paginas)
+        caja.addWidget(self.info)
+        caja.addWidget(botones)
+        self.tipo.currentIndexChanged.connect(self._cambio)
+        try:
+            ultimo = int(cfg.value(CLAVE_PIEZA + "ultimo", 0))
+        except (TypeError, ValueError):
+            ultimo = 0
+        self.tipo.setCurrentIndex(max(0, min(ultimo, len(self.tipos) - 1)))
+        self._cambio()
+
+    def _cambio(self, *_):
+        self.paginas.setCurrentIndex(self.tipo.currentIndex())
+        self._actualizar()
+
+    def tipo_actual(self):
+        i = self.tipo.currentIndex()
+        return self.tipos[i] if i < len(self.tipos) else None
+
+    def medidas(self):
+        t = self.tipo_actual()
+        return {k: w.value() for k, w in self.campos[t].items()} if t else {}
+
+    def _actualizar(self, *_):
+        t = self.tipo_actual()
+        if t is None:
+            self._ok.setEnabled(False)
+            self.info.setText("")
+            return
+        err = p3.problema(t, self.medidas())
+        self._ok.setEnabled(err is None)
+        if err:
+            self.info.setText("<b style='color:#c0392b'>" + err + "</b>")
+        else:
+            self.info.setText("Se dibuja como lámina (sin espesor), con la medida tal cual la escribe. "
+                              "Después selecciónela y use <b>Desdoblar caras</b> para sacar el plano, y "
+                              "<b>Acomodar en láminas</b> para gastar el menor material.")
+
+    def _helicoidal(self):
+        self.pidio_helicoidal = True
+        self.reject()
+
+    def _aceptar(self):
+        t = self.tipo_actual()
+        if t is None:
+            return
+        cfg = QSettings()
+        cfg.setValue(CLAVE_PIEZA + "ultimo", self.tipo.currentIndex())
+        for k, w in self.campos[t].items():
+            cfg.setValue(f"{CLAVE_PIEZA}{t}/{k}", w.value())
+        self.accept()
+
+
+def grupo_desde_parte(parte):
+    """Grupo del modelo (en metros) con las caras de una Parte de core.edwin_piezas3d."""
+    from core.group import Group
+    from core.mesh import Mesh
+    pts = [QVector3D(x / MM, y / MM, z / MM) for x, y, z in parte.vertices]
+    g = Group(Mesh(), name=parte.nombre)
+    for k, f in enumerate(parte.caras):
+        huecos = [[pts[i] for i in h] for h in parte.huecos.get(k, [])]
+        if huecos:
+            g.mesh.add_face([pts[i] for i in f], huecos)
+        else:
+            g.mesh.add_face([pts[i] for i in f])
+    for a, b in parte.suaves:
+        va, vb = g.mesh.vertex_at(pts[a]), g.mesh.vertex_at(pts[b])
+        e = g.mesh.find_edge(va, vb) if va is not None and vb is not None else None
+        if e is not None:
+            e.soft = True
+    return g
+
+
+def crear_pieza(app):
+    ventana = _VentanaPieza(app.window)
+    r = ventana.exec()
+    if ventana.pidio_helicoidal:
+        crear_helicoidal(app)
+        return
+    if r != QDialog.Accepted:
+        return
+    tipo, m = ventana.tipo_actual(), ventana.medidas()
+    partes = p3.construir(tipo, m)
+    from core.history import SnapshotImport
+    nuevos = []
+
+    def mutar(scene):
+        for parte in partes:
+            g = grupo_desde_parte(parte)
+            scene.groups.append(g)
+            nuevos.append(g)
+
+    app.viewport.history.execute(SnapshotImport(mutar))
+    try:
+        app.scene.selection.clear()
+        for g in nuevos:
+            app.scene.selection.add(g)
+    except Exception:                     # noqa: BLE001
+        pass
+    app.viewport.notify_scene_changed()
+    try:
+        app.window._on_zoom_extents()
+    except Exception:                     # noqa: BLE001
+        pass
+    try:
+        app.viewport.flash_status(f"{p3.nombre(tipo, m)}: lista. Con todo seleccionado, «Desdoblar caras» "
+                                  "saca el plano.", 7000)
+    except Exception:                     # noqa: BLE001
+        pass
+
+
 def setup(app):
     hacer = lambda: desdoblar_seleccion(app)   # noqa: E731
     sub = app.add_menu("EDWIN CNC")
@@ -1095,6 +1424,9 @@ def setup(app):
         act = sub.addAction("Desdoblar caras seleccionadas…")
         act.setStatusTip("Acuesta en plano las caras seleccionadas y guarda el DXF para cortar.")
         act.triggered.connect(lambda _c=False: hacer())
+        act_p = sub.addAction("Pieza por medidas (tolvas, transiciones, tubos)…")
+        act_p.setStatusTip("Escriba las medidas y la pieza se dibuja sola en 3D, lista para desdoblar.")
+        act_p.triggered.connect(lambda _c=False: crear_pieza(app))
         act2 = sub.addAction("Helicoidal (sinfín)…")
         act2.setStatusTip("Dibuja una helicoidal de sinfín con sus medidas para luego desdoblarla por tramos.")
         act2.triggered.connect(lambda _c=False: crear_helicoidal(app))
@@ -1121,6 +1453,10 @@ def setup(app):
     accion.setToolTip("Desdoblar caras seleccionadas a plano (DXF para el CAD-CAM)")
     accion.triggered.connect(lambda _c=False: hacer())
     barra.addAction(accion)
+    accion_p = QAction("Pieza por medidas", barra)
+    accion_p.setToolTip("Tolvas, transiciones y tubos: escriba las medidas y se dibujan solas")
+    accion_p.triggered.connect(lambda _c=False: crear_pieza(app))
+    barra.addAction(accion_p)
     accion_h = QAction("Helicoidal", barra)
     accion_h.setToolTip("Dibujar una helicoidal de sinfín con sus medidas")
     accion_h.triggered.connect(lambda _c=False: crear_helicoidal(app))
